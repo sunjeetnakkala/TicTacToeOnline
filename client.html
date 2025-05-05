@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TicTacToe Online</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.min.js"></script>
+</head>
+<body>
+    <h1>TicTacToe Online</h1>
+    <div>
+        <p id="player-1">Player 1: Loading...</p>
+        <p id="player-2">Player 2: Loading...</p>
+        <p><span id="full"></span></p>
+        <p id="game-status">Waiting for all players...</p>
+
+        <table border="1">
+            <tbody id="board"></tbody>
+        </table>
+        <p id="prompt"></p>
+        <p id="winner"></p>
+    </div>
+
+    <script>    
+        // Connect to the Flask SocketIO server
+        const socket = io('http://localhost:5000');
+        let thisUser = -1;
+        let p1Connected = false;
+        let p2Connected = false;
+        let waitingForMove = false;
+        let selection = [-1,-1];
+        let userChose = false;
+
+        // Listen for the "connect" event
+        socket.on('connect', () => {
+            console.log('Successfully connected to the server!');
+        });
+
+        // When a player connects, update for everyone add the html elements accordingly
+        socket.on('player_connected', (data) => {
+
+            updatePlayers(data.players);
+
+            userText = document.createElement("span");
+            userText.textContent = " (You)";
+            if (thisUser == -1) {
+                thisUser = data.user;
+            }
+            targetElement = document.getElementById("player-" + (thisUser + 1));
+            targetElement.appendChild(userText);
+        });
+
+        socket.on('disconnect', () => {
+            console.log('Disconnected from the server!');
+        });
+
+        socket.on('player_disconnected', (data) => {
+            updatePlayers(data.players);
+        });
+
+        socket.on('room_full', (data) => {
+            fullElement = document.getElementById("full");
+            fullElement.textContent = data.message;
+        });
+        
+        socket.on('init_game', (data) => {
+            console.log("init received");
+            targetElement = document.getElementById("game-status");
+            targetElement.textContent = "Game Started";
+            updateBoard(data.board);
+        });
+
+        socket.on('your_turn', () => {
+            userMove();            
+        });
+
+        socket.on('move', (data) => {
+            updateBoard(data.board);
+        });
+
+        socket.on('illegal_move', () => {
+            userMove();
+        });
+
+        socket.on('game_over', (data) => {
+            status = data.status;
+            targetElement = document.getElementById("winner");
+
+            if (status == 'X') {
+                targetElement.textContent = "Player 1 Is the Winner!";
+            }
+            else if (status == 'O') {
+                targetElement.textContent = "Player 2 Is the Winner!";
+            }
+            else {
+                targetElement.textContent = "TIE: No Winner!";
+            }
+            document.getElementById("prompt").textContent = "";
+        })
+
+        // Update what players are connected
+        function updatePlayers(players) {
+            player1Element = document.getElementById("player-1");
+            player2Element = document.getElementById("player-2");
+            if (players[0] == null) {
+                player1Element.textContent = "Player 1: Not Connected";
+                p1Connected = false;
+            }
+            else {
+                player1Element.textContent = "Player 1: Connected";
+                p1Connected = true;
+            }
+            if (players[1] == null) {
+                player2Element.textContent = "Player 2: Not Connected";
+                p2Connected = false;
+            }
+            else {
+                player2Element.textContent = "Player 2: Connected";
+                p2Connected = true;
+            }
+
+            if (!(p1Connected && p2Connected)) {
+                document.getElementById("game-status").textContent = "Waiting for all players...";
+            }
+        };
+
+        // Update the board
+        function updateBoard(board) {
+            const boardElement = document.getElementById("board");
+            boardElement.innerHTML = "";
+
+            for (let i = 0; i < 3; i++) {
+                const row = document.createElement("tr");
+                for (let j = 0; j < 3; j++) {
+                    const cell = document.createElement("td");
+
+                    const button = document.createElement("button");
+                    button.textContent = board[i][j];
+                    button.setAttribute("data-row", i);
+                    button.setAttribute("data-col", j);
+                    button.onclick = () => handleClick(i, j);
+
+
+                    button.style.width = "100px";
+                    button.style.height = "100px";
+
+                    cell.appendChild(button);
+                    row.appendChild(cell);
+                }
+                boardElement.appendChild(row);
+            }
+        };
+        
+        // Handles when a squaer is clicked
+        function handleClick(row, col) {
+            if (waitingForMove) {
+                selection[0] = row;
+                selection[1] = col;
+                userChose = true;
+                moveResolver();
+            }
+        }
+        // Promise to handle click event -> userMove
+        function waitForUserMove() {
+            return new Promise(resolve => {
+                moveResolver = resolve;
+            });
+        }
+
+        // Async function that acts when the user actually clicks a square
+        async function userMove() {
+            let r = 0
+            let c = 0
+            waitingForMove = true;
+            promptUser(true);
+
+            await waitForUserMove();
+            r = selection[0];
+            c = selection[1];
+
+            waitingForMove = false;
+            promptUser(false);
+            selection[0] = -1;
+            selection[1] = -1;
+            userChose = false;
+
+            socket.emit('user_moved', {"user": thisUser, "r": r, "c": c});            
+        };
+
+        function promptUser(status) {
+            targetElement = document.getElementById("prompt");
+
+            if (status) {
+                targetElement.textContent = "Your turn: make a move.";
+            }
+            else {
+                targetElement.textContent = "Waiting for other player...";
+            }
+        }
+    </script>
+</body>
+</html>
